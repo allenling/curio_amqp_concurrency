@@ -1,4 +1,9 @@
 # coding=utf-8
+'''
+使用curio和pika来建立amqp连接
+
+仅仅是建立连接,解析msg而已, 对很多情况没有做判断
+'''
 import pika
 
 import curio

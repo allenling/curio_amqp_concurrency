@@ -12,6 +12,12 @@ from .connection import Connection
 
 
 class Worker(curio.workers.ProcessWorker):
+    '''
+    这里继承于curio的ProcessWorker
+    不同的是, curio中worker是await等待结果返回
+    这里分发任务到子进程之后, 就不管了
+    worker pool中需要spawn一个wait任务去监视子进程运行是否超时
+    '''
 
     def __init__(self, age):
         self.age = age
@@ -20,6 +26,7 @@ class Worker(curio.workers.ProcessWorker):
 
     async def apply(self, func, args=(), kwargs={}):
         msg = (func, args, kwargs)
+        # 将任务发送到子进程之后就返回, 不等待结果返回
         await self.client_ch.send(msg)
 
 
@@ -75,6 +82,10 @@ class WorkerPool:
                 raise
 
     async def wait(self, worker, data, master_queue, connection):
+        # wait没办法显示的去cancel, 所以需要在程序中加入对self.alive判断
+        # 这里每0.5秒去检查self.alive, 每一个重新启动点都加上self.alive的判断
+        # 一旦self.alive=False, wait协程需要停止
+        # 暂时没找到更好的办法
         func_data = data['data']
         end_time = time.time() + self.timeout
         sleep_time = 0.5
@@ -92,6 +103,8 @@ class WorkerPool:
                 print ('worker %s shutdown' % worker.process.pid)
                 self.kill_worker(worker.process.pid)
             else:
+                if not self.alive:
+                    return
                 print ('{0}, {1}, {2}, success: {3}, result: {4}'.format(func_data['func'], func_data['args'], func_data['kwargs'], success, result))
                 self.idle_workers.append(worker.process.pid)
             self.manage_workers()
@@ -103,8 +116,10 @@ class WorkerPool:
     async def apply(self, data, master_queue, connection):
         func, args, kwargs = data['data']['func'], data['data']['args'], data['data']['kwargs']
         worker = self.pool[self.idle_workers.pop(0)]
+        # 将任务分发到一个worker中
         await worker.apply(func, args, kwargs)
         print ('apply worker %s' % worker.process.pid)
+        # spawn一个wait任务去监视子进程是否超时
         await curio.spawn(self.wait(worker, data, master_queue, connection))
 
 
@@ -118,6 +133,7 @@ class Master:
 
     async def start(self):
         print ('master %s start' % os.getpid())
+        # 下面都是建立amqp连接
         self.master_queue = curio.Queue()
         self.con = Connection(self.amqp_url, self.worker_nums, self.master_queue)
         await self.con.connect()
@@ -126,9 +142,15 @@ class Master:
         queue = await self.con.declare_queue(channel.channel_number, 'curio_amqp_queue')
         await self.con.bind(channel.channel_number, exchange.name, queue.name, routing_key='curio_amqp')
         await self.con.update_qos(channel.channel_number)
+
+        # 构建worker pool
         self.pool = WorkerPool(self.worker_nums, self.worker_timeout)
+
+        # spawn接收amqp消息的任务和分发msg到worker的任务
         consume_task = await curio.spawn(self.con.start_consume(channel.channel_number, queue.name))
         fetch_task = await curio.spawn(self.fetch_amqp_msg())
+
+        # 这里监听信号
         while self.alive:
             sig = await curio.SignalSet(*[signal.SIGTERM, signal.SIGINT, signal.SIGCHLD]).wait()
             print ('master got signal %s' % sig)
@@ -138,14 +160,18 @@ class Master:
             elif sig == signal.SIGCHLD:
                 self.pool.reap_workers()
                 self.pool.manage_workers()
+        # 需要退出, 则将connection和pool的alive置为False
         self.pool.alive = False
         self.con.alive = False
         try:
+            # 等到任务结束
             await curio.timeout_after(1, consume_task.join())
             await curio.timeout_after(1, fetch_task.join())
         except curio.TaskTimeout:
+            # 强制取消任务
             await consume_task.cancel()
             await fetch_task.cancel()
+        # 杀死所有的子进程
         self.pool.kill_all_workers()
         print ('master gone')
 
