@@ -157,9 +157,14 @@ class Master:
             data['data']['func'] = getattr(self.task_module, data['data']['func'])
             await self.pool.apply(data, self.master_queue, self.con)
 
-if __name__ == '__main__':
-    m = Master(1, 'curio_amqp_tasks')
+def main():
+    m = Master(1, 'curio_amqp_concurrency.curio_amqp_tasks')
     try:
         curio.run(m.start())
     except KeyboardInterrupt:
         pass
+
+
+if __name__ == '__main__':
+    main()
+
