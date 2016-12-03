@@ -187,6 +187,7 @@ class Connection:
 
     async def ack(self, data):
         print ('ack %s' % data)
+        # TODO: ack失败, 抛出错误, 返回
         ack = pika.spec.Basic.Ack(delivery_tag=data['delivery_tag'])
         frame_value = pika.frame.Method(data['channel_number'], ack)
         await self.sock.sendall(frame_value.marshal())
