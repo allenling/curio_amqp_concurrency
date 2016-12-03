@@ -1,4 +1,5 @@
 # coding=utf-8
+import time
 
 def test(a, b):
     return a + b

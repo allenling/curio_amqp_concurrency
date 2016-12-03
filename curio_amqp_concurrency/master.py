@@ -15,8 +15,9 @@ class Worker(curio.workers.ProcessWorker):
     '''
     这里继承于curio的ProcessWorker
     不同的是, curio中worker是await等待结果返回
-    这里分发任务到子进程之后, 就不管了
-    worker pool中需要spawn一个wait任务去监视子进程运行是否超时
+    这里需要分发任务到子进程之后, 不等待任务完成, 继续分发下一个任务
+    所以, worker pool中需要spawn一个wait任务去监视子进程运行是否超时
+    这里似乎没有遵循Causality.
     '''
 
     def __init__(self, age):
@@ -82,10 +83,18 @@ class WorkerPool:
                 raise
 
     async def wait(self, worker, data, master_queue, connection):
-        # wait没办法显示的去cancel, 所以需要在程序中加入对self.alive判断
-        # 这里每0.5秒去检查self.alive, 每一个重新启动点都加上self.alive的判断
-        # 一旦self.alive=False, wait协程需要停止
-        # 暂时没找到更好的办法
+        '''
+        wait没办法显式地去cancel, 所以需要在程序中加入对self.alive判断
+        这里每0.5秒去检查self.alive, 每一个重新启动点都加上self.alive的判断
+        一旦self.alive=False, wait协程需要停止
+        暂时没找到更好的办法
+        若没超时, 发送ack
+        若超时, 发送ack, 不管self.alive是否为False
+        若self.alive = False, 调用queue.task_done, 然后return
+        一个必须的操作是queue.task_done, 这样才能最后关闭connection
+
+        这里代码需要, 更清晰点
+        '''
         func_data = data['data']
         end_time = time.time() + self.timeout
         sleep_time = 0.5
@@ -93,24 +102,25 @@ class WorkerPool:
             try:
                 success, result = await curio.timeout_after(sleep_time, worker.client_ch.recv())
             except curio.TaskTimeout:
-                if not self.alive:
-                    return
                 now = time.time()
-                if now < end_time:
+                if now < end_time and self.alive:
                     sleep_time = end_time - now if end_time - now < 0.5 else sleep_time
                     continue
-                print ('{0}, {1}, {2} timeout'.format(func_data['func'], func_data['args'], func_data['kwargs']))
-                print ('worker %s shutdown' % worker.process.pid)
-                self.kill_worker(worker.process.pid)
-            else:
+                if now >= end_time:
+                    print ('{0}, {1}, {2} timeout'.format(func_data['func'], func_data['args'], func_data['kwargs']))
+                    self.kill_worker(worker.process.pid)
+                    break
                 if not self.alive:
+                    await master_queue.task_done()
                     return
+            else:
                 print ('{0}, {1}, {2}, success: {3}, result: {4}'.format(func_data['func'], func_data['args'], func_data['kwargs'], success, result))
                 self.idle_workers.append(worker.process.pid)
+                break
+        await connection.ack(data)
+        await master_queue.task_done()
+        if self.alive:
             self.manage_workers()
-            await connection.ack(data)
-            await master_queue.task_done()
-            break
         return
 
     async def apply(self, data, master_queue, connection):
@@ -184,7 +194,7 @@ class Master:
             await self.pool.apply(data, self.master_queue, self.con)
 
 def main():
-    m = Master(1, 'curio_amqp_concurrency.curio_amqp_tasks')
+    m = Master(2, 'curio_amqp_concurrency.tasks')
     try:
         curio.run(m.start())
     except KeyboardInterrupt:

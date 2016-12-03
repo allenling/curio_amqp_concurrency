@@ -178,12 +178,22 @@ class Connection:
         assert isinstance(frame_obj.method, pika.spec.Basic.ConsumeOk)
         if len(data) > count:
             await self.send_msg(data[count:])
-        while self.alive:
-            data = await self.sock.recv(self.MAX_DATA_SIZE)
-            await self.send_msg(data)
+        try:
+            while self.alive:
+                data = await self.sock.recv(self.MAX_DATA_SIZE)
+                await self.send_msg(data)
+        except curio.CancelledError:
+            await self.close()
 
     async def ack(self, data):
         print ('ack %s' % data)
         ack = pika.spec.Basic.Ack(delivery_tag=data['delivery_tag'])
         frame_value = pika.frame.Method(data['channel_number'], ack)
         await self.sock.sendall(frame_value.marshal())
+
+    async def close(self):
+        # 等待队列为空, 这是因为还有任务需要ack
+        await self.master_queue.join()
+        # 关闭连接
+        await self.sock.close()
+
