@@ -8,14 +8,14 @@
 
 运行：
 
-python(>=3.5) run.py --workers workers --task_path task_path --worker_timeout worker_timeut --amqp_url amqp_url
+python(>=3.5) run.py --workers WORKERS --task_path TASK_PATH --worker_timeout WORKER_TIMEUT --amqp_url AMQP_URL
 
---workers WORKERS     默认是1
---task_path TASK_PATH
-                      默认是curio_amqp_concurrency.tasks
---worker_timeout WORKER_TIMEOUT
-                      默认是30秒
---amqp_url AMQP_URL   默认是amqp://testuser:testuser@localhost:5672/
+* --workers WORKERS     默认是1
+* --task_path TASK_PATH
+*                       默认是curio_amqp_concurrency.tasks
+* --worker_timeout WORKER_TIMEOUT
+*                       默认是30秒
+* --amqp_url AMQP_URL   默认是amqp://testuser:testuser@localhost:5672/
 
 
 # Python3中异步(asynchronous)的个人理解
