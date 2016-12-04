@@ -4,7 +4,19 @@
 
 并没考虑rabbitmq离线的情况下, 重连或者关闭客户端. 只有客户端主动断开连接的操作.
 
-发送的消息格式是{"func": func, "args": [], "kwargs": {}}
+发送的消息格式是json，内容是{"func": func, "args": [], "kwargs": {}}
+
+运行：
+
+python(>=3.5) run.py --workers workers --task_path task_path --worker_timeout worker_timeut --amqp_url amqp_url
+
+--workers WORKERS     默认是1
+--task_path TASK_PATH
+                      默认是curio_amqp_concurrency.tasks
+--worker_timeout WORKER_TIMEOUT
+                      默认是30秒
+--amqp_url AMQP_URL   默认是amqp://testuser:testuser@localhost:5672/
+
 
 # Python3中异步(asynchronous)的个人理解
 
@@ -51,9 +63,12 @@ types.coroutine的作用是将CO_ITERABLE_COROUTINE的code flag加入到func的c
 CO_ITERABLE_COROUTINE的flag， 就调用GET_YIELD_FROM_ITER， GET_YIELD_FROM_ITER检查yield from是否跟着参数arg是否是一个生成器或者协程， 如果不是， 则调用iter(arg)
 
 
+await在VM的opcode是GET_AWAITABLE, 也就是调用awaitable对象的__await__方法.
+
+
 而await后面接的是awaitable对象的时候， VM的opcode就是GET_AWAITABLE, 由于__await__方法返回一个可迭代对象， 所以GET_AWAITABLE就是获取可迭代对象.
 
-asynci/await就是一个API接口，提供了一个这样的约定: async定义的函数是协程，await则返回一个awaitable对象, awaitable对象可以迭代.
+asynci/await就是一个API接口，提供了一个这样的约定: async定义的函数是协程，await则返回一个awaitable对象, awaitable对象中的__await__方法返回的对象可以迭代.
 
 
 

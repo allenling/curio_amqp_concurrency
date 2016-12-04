@@ -5,6 +5,7 @@ import signal
 import errno
 import importlib
 import json
+import argparse
 
 import curio
 
@@ -17,7 +18,6 @@ class Worker(curio.workers.ProcessWorker):
     不同的是, curio中worker是await等待结果返回
     这里需要分发任务到子进程之后, 不等待任务完成, 继续分发下一个任务
     所以, worker pool中需要spawn一个wait任务去监视子进程运行是否超时
-    这里似乎没有遵循Causality.
     '''
 
     def __init__(self, age):
@@ -72,6 +72,7 @@ class WorkerPool:
             while True:
                 wpid, status = os.waitpid(-1, os.WNOHANG)
                 if not wpid:
+                    print ('no any worker wait for reap')
                     break
                 print ('reap worker %s, exit with %s' % (wpid, status))
                 if wpid in self.pool:
@@ -134,7 +135,7 @@ class WorkerPool:
 
 
 class Master:
-    def __init__(self, worker_nums, task_module, worker_timeout=5, amqp_url='amqp://testuser:testuser@localhost:5672/'):
+    def __init__(self, worker_nums, task_module, worker_timeout, amqp_url):
         self.task_module = importlib.import_module(task_module)
         self.worker_nums = worker_nums
         self.worker_timeout = worker_timeout
@@ -193,8 +194,16 @@ class Master:
             data['data']['func'] = getattr(self.task_module, data['data']['func'])
             await self.pool.apply(data, self.master_queue, self.con)
 
+
 def main():
-    m = Master(2, 'curio_amqp_concurrency.tasks')
+    parser = argparse.ArgumentParser(description='基于curio的amqp分发app')
+    parser.add_argument('--workers', type=int, default=1, help="默认是1")
+    parser.add_argument('--task_path', default='curio_amqp_concurrency.tasks', help="默认是curio_amqp_concurrency.tasks")
+    parser.add_argument('--worker_timeout', type=int, default=30, help="默认是30秒")
+    parser.add_argument('--amqp_url', default='amqp://testuser:testuser@localhost:5672/', help="默认是amqp://testuser:testuser@localhost:5672/")
+    args = parser.parse_args()
+    print (type(args.workers))
+    m = Master(args.workers, args.task_path, args.worker_timeout, args.amqp_url)
     try:
         curio.run(m.start())
     except KeyboardInterrupt:
@@ -203,4 +212,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
