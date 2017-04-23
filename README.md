@@ -45,32 +45,29 @@ http://aosabook.org/en/500L/a-web-crawler-with-asyncio-coroutines.html
 也就是会调用到setp函数，setp函数则负责重新启动协程.
 
 
-## 关于async/await和yield from
+## 使用async/await或types.coroutine/asyncio.coroutine或者yield from定义协程
 
-http://www.snarky.ca/how-the-heck-does-async-await-work-in-python-3-5
+原文: http://www.snarky.ca/how-the-heck-does-async-await-work-in-python-3-5
 
-文中解释了async/await和yield from的区别已经async/await是做什么工作的.
+详解: https://github.com/allenling/LingsKeep/blob/master/async_await_yield_from.rst
 
-简单来说
+简单来说，async/await定义的就是协程，而用types.coroutine/asyncio.coroutine + yield from定义的就是基于生成器的协程, yield from就是生成器，但是
+因为生成器跟协程有一样的API(send, throw, close)，所以可以当协程用
 
-await和yield from的区别不大, 都是对子生成器的委托(PEP380). 都是for i in subgenrator: yield i操作，只是await更严格，只能在async定义的函数中出现，并且后面只能跟awaitable对象(定义了__await__方法，并且返回一个可迭代对象).
-而yield from没有这些限制.
+co_flag的区别: async/await定义的协程，其co_flag上是带有CO_COROUTINE
 
-async/await就是清楚的区分生成器和协程，而types.coroutine装饰器则是区分用于协程的和仅仅做迭代的生成器.
+而使用yield from配合types.coroutine/asyncio.coroutine定义的协程的co_flag带有CO_ITERABLE_COROUTINE
 
-一个带有types.coroutine装饰器的生成器和一个async定义的函数在opcode上有一些区别
+而一般的生成器的co_flag带有的是CO_GENERATOR
 
-types.coroutine的作用是将CO_ITERABLE_COROUTINE的code flag加入到func的codeobject中(也就是func.__code__), 然后VM在看到
+字面上一个就是协程，一个是可迭代协程，也就是基于生成器的协程了
 
-CO_ITERABLE_COROUTINE的flag， 就调用GET_YIELD_FROM_ITER， GET_YIELD_FROM_ITER检查yield from是否跟着参数arg是否是一个生成器或者协程， 如果不是， 则调用iter(arg)
+还有opcode的区别
 
+await的opcode的是GET_AWAITABLE, 接受awaitable对象
 
-await在VM的opcode是GET_AWAITABLE, 也就是调用awaitable对象的__await__方法.
-
-
-而await后面接的是awaitable对象的时候， VM的opcode就是GET_AWAITABLE, 由于__await__方法返回一个可迭代对象， 所以GET_AWAITABLE就是获取可迭代对象.
-
-asynci/await就是一个API接口，提供了一个这样的约定: async定义的函数是协程，await则返回一个awaitable对象, awaitable对象中的__await__方法返回的对象可以迭代.
+yield from的opcode是GET_YIELD_FROM_ITER, 也就是说yield from可以接协程或者生成器或者可迭代对象，并且yield from后面跟协程的条件是yield from在一个用
+types.coroutine/asyncio.coroutine装饰的函数内部
 
 
 
