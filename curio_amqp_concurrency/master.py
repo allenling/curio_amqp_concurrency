@@ -107,14 +107,14 @@ class WorkerPool:
                     sleep_time = end_time - now if end_time - now < 0.5 else sleep_time
                     continue
                 if now >= end_time:
-                    print ('{0}, {1}, {2} timeout'.format(func_data['func'], func_data['args'], func_data['kwargs']))
+                    print ('{0}, {1}, {2} timeout'.format(func_data['func'], func_data['args']))
                     self.kill_worker(worker.process.pid)
                     break
                 if not self.alive:
                     await master_queue.task_done()
                     return
             else:
-                print ('{0}, {1}, {2}, success: {3}, result: {4}'.format(func_data['func'], func_data['args'], func_data['kwargs'], success, result))
+                print ('{0}, {1}, success: {2}, result: {3}'.format(func_data['func'], func_data['args'], success, result))
                 self.idle_workers.append(worker.process.pid)
                 break
         await connection.ack(data)
@@ -162,10 +162,10 @@ class Master:
 
         # 这里监听信号
         while self.alive:
-            with curio.SignalQueue(*[signal.SIGTERM, signal.SIGINT, signal.SIGCHLD]) as sigQueue:
+            with curio.SignalQueue(*[signal.SIGTERM, signal.SIGINT, signal.SIGCHLD, signal.SIGHUP]) as sigQueue:
                 sig = await sigQueue.get()
                 print ('master got signal %s' % sig)
-                if sig in [signal.SIGTERM, signal.SIGINT]:
+                if sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
                     self.alive = False
                     break
                 elif sig == signal.SIGCHLD:
@@ -189,7 +189,13 @@ class Master:
     async def fetch_amqp_msg(self):
         while self.alive:
             data = await self.master_queue.get()
-            data['data'] = json.loads(data['data'])
+            try:
+                data['data'] = json.loads(data['data'])
+            except Exception as e:
+                print('json.load data error', e, data)
+                # ack
+                await self.con.ack(data)
+                return
             print ('get %s' % data)
             data['data']['func'] = getattr(self.task_module, data['data']['func'])
             await self.pool.apply(data, self.master_queue, self.con)

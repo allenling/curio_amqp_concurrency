@@ -25,6 +25,8 @@ TODO:
 
 2. 适配curio v0.2，包括信号的处理方式等等.
 
+3. 如果worker没有被apply，就不会检测父进程死亡，从而在父进程被kill -9之后不会自己退出.
+
 
 # Python3中异步(asynchronous)的个人理解
 
