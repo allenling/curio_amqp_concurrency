@@ -4,7 +4,7 @@
 
 并没考虑rabbitmq离线的情况下, 重连或者关闭客户端. 只有客户端主动断开连接的操作.
 
-发送的消息格式是json，内容是{"func": func, "args": [], "kwargs": {}}
+发送的消息格式是json，内容是{"func": func, "args": []}
 
 运行：
 
@@ -18,6 +18,12 @@ python(>=3.5) run.py --workers WORKERS --task_path TASK_PATH --worker_timeout WO
   默认是30秒
 * --amqp_url
   AMQP_URL   默认是amqp://testuser:testuser@localhost:5672/
+
+TODO:
+
+1. 更多的异常检测，保证消息能够即使的ack，比如apply到worker的时候也能把消息ack掉.
+
+2. 适配curio v0.2，包括信号的处理方式等等.
 
 
 # Python3中异步(asynchronous)的个人理解

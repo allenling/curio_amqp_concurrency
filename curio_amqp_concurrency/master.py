@@ -1,4 +1,3 @@
-# coding=utf-8
 import os
 import time
 import signal
@@ -22,11 +21,11 @@ class Worker(curio.workers.ProcessWorker):
 
     def __init__(self, age):
         self.age = age
-        super(Worker, self).__init__()
+        super(Worker, self).__init__(None)
         self._launch()
 
-    async def apply(self, func, args=(), kwargs={}):
-        msg = (func, args, kwargs)
+    async def apply(self, func, args=()):
+        msg = (func, args)
         # 将任务发送到子进程之后就返回, 不等待结果返回
         await self.client_ch.send(msg)
 
@@ -125,10 +124,10 @@ class WorkerPool:
         return
 
     async def apply(self, data, master_queue, connection):
-        func, args, kwargs = data['data']['func'], data['data']['args'], data['data']['kwargs']
+        func, args = data['data']['func'], data['data']['args']
         worker = self.pool[self.idle_workers.pop(0)]
         # 将任务分发到一个worker中
-        await worker.apply(func, args, kwargs)
+        await worker.apply(func, args)
         print ('apply worker %s' % worker.process.pid)
         # spawn一个wait任务去监视子进程是否超时
         await curio.spawn(self.wait(worker, data, master_queue, connection))
@@ -163,14 +162,15 @@ class Master:
 
         # 这里监听信号
         while self.alive:
-            sig = await curio.SignalSet(*[signal.SIGTERM, signal.SIGINT, signal.SIGCHLD]).wait()
-            print ('master got signal %s' % sig)
-            if sig in [signal.SIGTERM, signal.SIGINT]:
-                self.alive = False
-                break
-            elif sig == signal.SIGCHLD:
-                self.pool.reap_workers()
-                self.pool.manage_workers()
+            with curio.SignalQueue(*[signal.SIGTERM, signal.SIGINT, signal.SIGCHLD]) as sigQueue:
+                sig = await sigQueue.get()
+                print ('master got signal %s' % sig)
+                if sig in [signal.SIGTERM, signal.SIGINT]:
+                    self.alive = False
+                    break
+                elif sig == signal.SIGCHLD:
+                    self.pool.reap_workers()
+                    self.pool.manage_workers()
         # 需要退出, 则将connection和pool的alive置为False
         self.pool.alive = False
         self.con.alive = False
@@ -200,7 +200,7 @@ def main():
     parser.add_argument('--workers', type=int, default=1, help="默认是1")
     parser.add_argument('--task_path', default='curio_amqp_concurrency.tasks', help="默认是curio_amqp_concurrency.tasks")
     parser.add_argument('--worker_timeout', type=int, default=30, help="默认是30秒")
-    parser.add_argument('--amqp_url', default='amqp://testuser:testuser@localhost:5672/', help="默认是amqp://testuser:testuser@localhost:5672/")
+    parser.add_argument('--amqp_url', default='amqp://guest:guest@localhost:5672/', help="默认是amqp://guest:guest@localhost:5672/")
     args = parser.parse_args()
     print (type(args.workers))
     m = Master(args.workers, args.task_path, args.worker_timeout, args.amqp_url)
