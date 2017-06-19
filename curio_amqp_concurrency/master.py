@@ -141,25 +141,7 @@ class Master:
         self.amqp_url = amqp_url
         self.alive = True
 
-    async def start(self):
-        print ('master %s start' % os.getpid())
-        # 下面都是建立amqp连接
-        self.master_queue = curio.Queue()
-        self.con = Connection(self.amqp_url, self.worker_nums, self.master_queue)
-        await self.con.connect()
-        channel = await self.con.open_channel()
-        exchange = await self.con.declare_exchange(channel.channel_number, 'curio_amqp_exchange')
-        queue = await self.con.declare_queue(channel.channel_number, 'curio_amqp_queue')
-        await self.con.bind(channel.channel_number, exchange.name, queue.name, routing_key='curio_amqp')
-        await self.con.update_qos(channel.channel_number)
-
-        # 构建worker pool
-        self.pool = WorkerPool(self.worker_nums, self.worker_timeout)
-
-        # spawn接收amqp消息的任务和分发msg到worker的任务
-        consume_task = await curio.spawn(self.con.start_consume(channel.channel_number, queue.name))
-        fetch_task = await curio.spawn(self.fetch_amqp_msg())
-
+    async def wait_signal(self, consume_task, fetch_task):
         # 这里监听信号
         while self.alive:
             with curio.SignalQueue(*[signal.SIGTERM, signal.SIGINT, signal.SIGCHLD, signal.SIGHUP]) as sigQueue:
@@ -185,6 +167,30 @@ class Master:
         # 杀死所有的子进程
         self.pool.kill_all_workers()
         print ('master gone')
+        return
+
+    async def start(self):
+        print ('master %s start' % os.getpid())
+        # 下面都是建立amqp连接
+        self.master_queue = curio.Queue()
+        self.con = Connection(self.amqp_url, self.worker_nums, self.master_queue)
+        await self.con.connect()
+        channel = await self.con.open_channel()
+        exchange = await self.con.declare_exchange(channel.channel_number, 'curio_amqp_exchange')
+        queue = await self.con.declare_queue(channel.channel_number, 'curio_amqp_queue')
+        await self.con.bind(channel.channel_number, exchange.name, queue.name, routing_key='curio_amqp')
+        await self.con.update_qos(channel.channel_number)
+
+        # 构建worker pool
+        self.pool = WorkerPool(self.worker_nums, self.worker_timeout)
+
+        # spawn接收amqp消息的任务和分发msg到worker的任务
+        consume_task = await curio.spawn(self.con.start_consume(channel.channel_number, queue.name))
+        fetch_task = await curio.spawn(self.fetch_amqp_msg())
+
+        # wait for signal
+        await self.wait_signal(consume_task, fetch_task)
+        return
 
     async def fetch_amqp_msg(self):
         while self.alive:
